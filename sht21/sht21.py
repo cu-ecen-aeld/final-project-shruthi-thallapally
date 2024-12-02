@@ -1,33 +1,14 @@
-import smbus
-import time
+from smbus2 import SMBus
 
-# Get I2C bus
-bus = smbus.SMBus(1)
+bus = SMBus(1)  # Raspberry Pi I2C bus
+address = 0x40  # SHT21 I2C address
 
-# Address: HTU21D/SHT21
-device = 0x40
-
-while True:
-    try:
-        # Temperature
-        data = bus.read_i2c_block_data(device, 0xE3,2)
-        big_int = (data[0] * 256) + data[1]  # Combine both bytes into one big integer
-        temperature = ((big_int / 65536) * 175.72) - 46.85  # Formula from datasheet
-
-        # Humidity
-        data = bus.read_i2c_block_data(device, 0xE5,2)
-        big_int = (data[0] * 256) + data[1]
-        humidity = ((big_int / 65536) * 125) - 6
-
-        # Print results
-        print('Temperature: {:.2f}°C'.format(temperature))
-        print('Humidity: {:.2f}%'.format((25 - temperature) * 0.15 + humidity))
-    
-    except OSError as e:
-        print(f"I2C Error: {e}")
-    
-    except Exception as e:
-        print(f"Unexpected Error: {e}")
-    
-    time.sleep(1)  # Wait before the next read
+try:
+    # Send a temperature measurement command (0xF3 for SHT21)
+    bus.write_byte(address, 0xF3)
+    print("Command sent successfully!")
+except Exception as e:
+    print(f"I²C Error: {e}")
+finally:
+    bus.close()
 
