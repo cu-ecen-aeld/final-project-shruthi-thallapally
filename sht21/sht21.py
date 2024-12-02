@@ -1,6 +1,6 @@
-import SMBus
+import smbus
 
-bus = SMBus(1)  # Raspberry Pi I2C bus
+bus = smbus(1)  # Raspberry Pi I2C bus
 address = 0x40  # SHT21 I2C address
 
 try:
