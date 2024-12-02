@@ -1,36 +1,33 @@
-import smbus  
-import time  
+import smbus
+import time
 
 # Get I2C bus
 bus = smbus.SMBus(1)
 
-# Address of SHT21 sensor
-device = 0x40  
+# Address: HTU21D/SHT21
+device = 0x40
 
 while True:
     try:
-        # Temperature measurement
-        time.sleep(0.1)  # Wait for the sensor to stabilize
-        data = bus.read_i2c_block_data(device, 0xE3)  
+        # Temperature
+        data = bus.read_i2c_block_data(device, 0xE3)
+        big_int = (data[0] * 256) + data[1]  # Combine both bytes into one big integer
+        temperature = ((big_int / 65536) * 175.72) - 46.85  # Formula from datasheet
 
-        big_int = (data[0] << 8) | data[1]  # Combine bytes
-        temperature = ((big_int / 65536) * 175.72) - 46.85  
+        # Humidity
+        data = bus.read_i2c_block_data(device, 0xE5)
+        big_int = (data[0] * 256) + data[1]
+        humidity = ((big_int / 65536) * 125) - 6
 
-        # Humidity measurement
-        time.sleep(0.1)  # Wait for the sensor to stabilize
-        data = bus.read_i2c_block_data(device, 0xE5)  
-
-        big_int = (data[0] << 8) | data[1]  # Combine bytes
-        humidity = ((big_int / 65536) * 125) - 6  
-
-        # Compensated humidity
-        compensated_humidity = (25 - temperature) * 0.15 + humidity  
-
-        print(f"Temperature: {temperature:.2f}°C")
-        print(f"Humidity: {humidity:.2f}%")
-        print(f"Compensated Humidity: {compensated_humidity:.2f}%")
-
+        # Print results
+        print('Temperature: {:.2f}°C'.format(temperature))
+        print('Humidity: {:.2f}%'.format((25 - temperature) * 0.15 + humidity))
+    
     except OSError as e:
         print(f"I2C Error: {e}")
-        time.sleep(1)
+    
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
+    
+    time.sleep(1)  # Wait before the next read
 
