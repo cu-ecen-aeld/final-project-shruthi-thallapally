@@ -1,4 +1,4 @@
-import smbus_cffi as smbus  
+import smbus  
 import time  
 
 # Get I2C bus
