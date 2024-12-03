@@ -1,3 +1,27 @@
+/*****************************************************************************
+ * Copyright (C) 2024 by Shruthi Thallapally
+ *
+ * Redistribution, modification or use of this software in source or binary
+ * forms is permitted as long as the files maintain this copyright. Users are
+ * permitted to modify this and use it to learn about the field of embedded
+ * software. Shruthi Thallapally and the University of Colorado are not liable for
+ * any misuse of this material.
+ *
+ *****************************************************************************/
+/**
+ * @file temp_sensor.c
+ * @brief This file contains functionality of temperature sensor application.
+ *
+ * To compile: make
+ *
+ * @author Shruthi Thallapally
+ * @date Dec 2 2024
+ * @version 1.0
+ * @resources sht21 data sheet
+ 	      google pages and chatGPT for trouble shooting
+              
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
