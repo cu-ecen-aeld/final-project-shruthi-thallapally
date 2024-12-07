@@ -9,8 +9,8 @@
  *
  *****************************************************************************/
 /**
- * @file temp_sensor.c
- * @brief This file contains functionality of temperature sensor application.
+ * @file sht21.c
+ * @brief This file contains functionality of temperature and humidity sensor application.
  *
  * To compile: make
  *
