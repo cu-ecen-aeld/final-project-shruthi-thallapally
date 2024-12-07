@@ -4,10 +4,10 @@ CFLAGS = -Wall -Werror -O2
 LDFLAGS = -lm
 
 # Target executable
-TARGET = sht21_server
+TARGET = server
 
 # Source files
-SRCS = sht21_server.c
+SRCS = server.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
