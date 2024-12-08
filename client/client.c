@@ -29,7 +29,7 @@
 #include <errno.h>
 #include <syslog.h>
 
-#define SERVER_IP "192.168.57.180" // the server's IP address
+#define SERVER_IP "192.168.57.181" // the server's IP address
 #define SERVER_PORT 9000
 #define BUFFER_SIZE 1024
 
