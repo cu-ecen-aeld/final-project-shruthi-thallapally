@@ -1,135 +1,163 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <syslog.h>
-#include "sht21.h" // Assuming you have a header file for SHT21 functions
+#include <signal.h>
+#include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
 
-#define PORT 9000
+// Constants for SHT21 sensor commands
+#define SHT21_TRIGGER_TEMP_MEASURE_HOLD  0xE3
+#define SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD  0xE5
 
-// Global variable to catch signals
-volatile sig_atomic_t signal_caught = 0;
+// Function prototypes
+int read_raw_data(int i2c_fd, uint8_t command, uint16_t *data);
+float convert_temp(uint16_t raw_temp);
+float convert_humidity(uint16_t raw_humidity);
+void handle_sigint(int sig);
 
-// Signal handler for cleanup
-void signal_handler(int signal) {
-    signal_caught = 1;
+volatile int keep_running = 1;
+
+// Signal handler for graceful shutdown
+void handle_sigint(int sig) {
+    syslog(LOG_INFO, "Server shutting down");
+    keep_running = 0;
 }
 
-int main() {
-    int server_fd, cli_fd, i2c_fd;
-    struct sockaddr_in server, client;
-    socklen_t addr_size;
-    char message[128];
-
-    // Open syslog
-    openlog("SHT21_Server", LOG_PID | LOG_CONS, LOG_USER);
+int main(int argc, char *argv[]) {
+    openlog("server", LOG_PID | LOG_CONS, LOG_USER);
     syslog(LOG_INFO, "Server starting...");
 
-    // Set up signal handling
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = signal_handler;
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
+    // Handle SIGINT for graceful shutdown
+    signal(SIGINT, handle_sigint);
 
-    // Create socket
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        syslog(LOG_ERR, "Socket creation failed");
+    // Initialize the I2C interface
+    const char *i2c_device = "/dev/i2c-1"; 
+    int i2c_fd = open(i2c_device, O_RDWR);
+    if (i2c_fd < 0) {
+        perror("Unable to open I2C device");
+        syslog(LOG_ERR, "Unable to open I2C device");
+        return EXIT_FAILURE;
+    }
+
+    // Set the I2C address of the SHT21 sensor
+    int sht21_address = 0x40; // SHT21 I2C address
+    if (ioctl(i2c_fd, I2C_SLAVE, sht21_address) < 0) {
+        perror("Failed to set I2C address");
+        syslog(LOG_ERR, "Failed to set I2C address");
+        close(i2c_fd);
+        return EXIT_FAILURE;
+    }
+
+    // Initialize the server socket
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd == -1) {
         perror("Socket creation failed");
-        exit(EXIT_FAILURE);
+        syslog(LOG_ERR, "Socket creation failed");
+        close(i2c_fd);
+        return EXIT_FAILURE;
     }
 
-    // Bind socket
-    server.sin_family = AF_INET;
-    server.sin_port = htons(PORT);
-    server.sin_addr.s_addr = INADDR_ANY;
+    struct sockaddr_in server_addr = {0};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(9000);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
 
-    if (bind(server_fd, (struct sockaddr*)&server, sizeof(server)) == -1) {
-        syslog(LOG_ERR, "Socket binding failed");
-        perror("Socket binding failed");
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Socket bind failed");
+        syslog(LOG_ERR, "Socket bind failed");
         close(server_fd);
-        exit(EXIT_FAILURE);
+        close(i2c_fd);
+        return EXIT_FAILURE;
     }
 
-    // Listen for connections
-    if (listen(server_fd, 5) == -1) {
-        syslog(LOG_ERR, "Listening failed");
-        perror("Listening failed");
+    if (listen(server_fd, 5) < 0) {
+        perror("Socket listen failed");
+        syslog(LOG_ERR, "Socket listen failed");
         close(server_fd);
-        exit(EXIT_FAILURE);
-    }
-    syslog(LOG_INFO, "Server listening on port %d", PORT);
-
-    // Open I2C device for SHT21
-    if ((i2c_fd = open("/dev/i2c-1", O_RDWR)) < 0) {
-        syslog(LOG_ERR, "Failed to open I2C device");
-        perror("Failed to open I2C device");
-        close(server_fd);
-        exit(EXIT_FAILURE);
+        close(i2c_fd);
+        return EXIT_FAILURE;
     }
 
-    while (!signal_caught) {
-        addr_size = sizeof(client);
+    syslog(LOG_INFO, "Server is listening on port 9000");
 
-        // Accept client connection
-        if ((cli_fd = accept(server_fd, (struct sockaddr*)&client, &addr_size)) == -1) {
-            if (signal_caught) break; // Exit if interrupted by a signal
-            syslog(LOG_ERR, "Failed to accept connection");
-            perror("Failed to accept connection");
+    while (keep_running) {
+        int client_fd = accept(server_fd, NULL, NULL);
+        if (client_fd < 0) {
+            if (keep_running) {
+                perror("Socket accept failed");
+                syslog(LOG_ERR, "Socket accept failed");
+            }
+            break;
+        }
+
+        syslog(LOG_INFO, "Client connected");
+
+        // Read temperature and humidity
+        uint16_t raw_temp, raw_humidity;
+        if (read_raw_data(i2c_fd, SHT21_TRIGGER_TEMP_MEASURE_HOLD, &raw_temp) < 0 ||
+            read_raw_data(i2c_fd, SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD, &raw_humidity) < 0) {
+            syslog(LOG_ERR, "Failed to read sensor data");
+            close(client_fd);
             continue;
         }
-        syslog(LOG_INFO, "Accepted connection from %s:%d",
-               inet_ntoa(client.sin_addr), ntohs(client.sin_port));
 
-        // Handle client connection
-        while (!signal_caught) {
-            uint16_t raw_temp, raw_humidity;
+        float temp = convert_temp(raw_temp);
+        float humidity = convert_humidity(raw_humidity);
 
-            // Read temperature
-            if (sht21_read_raw(i2c_fd, SHT21_TRIGGER_TEMP_MEASURE_HOLD, &raw_temp) < 0) {
-                syslog(LOG_ERR, "Failed to read temperature");
-                sleep(1); // Retry after delay
-                continue;
-            }
+        char response[128];
+        snprintf(response, sizeof(response), "Temperature: %.2f C, Humidity: %.2f%%\n", temp, humidity);
 
-            // Read humidity
-            if (sht21_read_raw(i2c_fd, SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD, &raw_humidity) < 0) {
-                syslog(LOG_ERR, "Failed to read humidity");
-                sleep(1); // Retry after delay
-                continue;
-            }
+        // Send data to client
+        send(client_fd, response, strlen(response), 0);
+        syslog(LOG_INFO, "Sent data to client: %s", response);
 
-            // Format data into a message
-            snprintf(message, sizeof(message), "Temperature: %.2f°C, Humidity: %.2f%%\n",
-                     sht21_convert_temp(raw_temp), sht21_convert_humidity(raw_humidity));
-
-            // Send data to client
-            if (send(cli_fd, message, strlen(message), 0) == -1) {
-                syslog(LOG_ERR, "Failed to send data to client");
-                perror("Send failed");
-                break;
-            }
-
-            sleep(2); // Throttle data sending to the client
-        }
-
-        // Close client connection
-        close(cli_fd);
-        syslog(LOG_INFO, "Closed connection to client");
+        close(client_fd);
     }
 
-    // Cleanup and exit
-    syslog(LOG_INFO, "Shutting down server...");
-    close(i2c_fd);
     close(server_fd);
+    close(i2c_fd);
+    syslog(LOG_INFO, "Server terminated");
     closelog();
 
+    return EXIT_SUCCESS;
+}
+
+// Read raw data from the SHT21 sensor
+int read_raw_data(int i2c_fd, uint8_t command, uint16_t *data) {
+    if (write(i2c_fd, &command, 1) != 1) {
+        perror("Failed to write to I2C device");
+        syslog(LOG_ERR, "Failed to write to I2C device");
+        return -1;
+    }
+
+    usleep(50000); // Delay for sensor measurement (50 ms)
+
+    uint8_t buffer[2];
+    if (read(i2c_fd, buffer, 2) != 2) {
+        perror("Failed to read from I2C device");
+        syslog(LOG_ERR, "Failed to read from I2C device");
+        return -1;
+    }
+
+    *data = (buffer[0] << 8) | buffer[1];
+    *data &= ~0x0003; // Mask off the status bits
     return 0;
+}
+
+// Convert raw temperature data to Celsius
+float convert_temp(uint16_t raw_temp) {
+    return -46.85 + 175.72 * raw_temp / 65536.0;
+}
+
+// Convert raw humidity data to percentage
+float convert_humidity(uint16_t raw_humidity) {
+    return -6.0 + 125.0 * raw_humidity / 65536.0;
 }
 
