@@ -103,28 +103,38 @@ int main(int argc, char *argv[]) {
         printf("Client connected\n");
         syslog(LOG_INFO, "Client connected");
 
-        // Read temperature and humidity
-        uint16_t raw_temp, raw_humidity;
-        if (read_raw_data(i2c_fd, SHT21_TRIGGER_TEMP_MEASURE_HOLD, &raw_temp) < 0 ||
-            read_raw_data(i2c_fd, SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD, &raw_humidity) < 0) {
-            printf("Failed to read sensor data\n");
-            syslog(LOG_ERR, "Failed to read sensor data");
-            close(client_fd);
-            continue;
+        // Continuously send sensor data to the client
+        while (keep_running) {
+            uint16_t raw_temp, raw_humidity;
+            if (read_raw_data(i2c_fd, SHT21_TRIGGER_TEMP_MEASURE_HOLD, &raw_temp) < 0 ||
+                read_raw_data(i2c_fd, SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD, &raw_humidity) < 0) {
+                printf("Failed to read sensor data\n");
+                syslog(LOG_ERR, "Failed to read sensor data");
+                break;
+            }
+
+            float temp = convert_temp(raw_temp);
+            float humidity = convert_humidity(raw_humidity);
+
+            char response[128];
+            snprintf(response, sizeof(response), "Temperature: %.2f C, Humidity: %.2f%%\n", temp, humidity);
+
+            // Send data to client
+            if (send(client_fd, response, strlen(response), 0) < 0) {
+                perror("Failed to send data to client");
+                syslog(LOG_ERR, "Failed to send data to client");
+                break;
+            }
+
+            printf("Sent data to client: %s", response);
+            syslog(LOG_INFO, "Sent data to client: %s", response);
+
+            sleep(1); //Delay for next read
         }
 
-        float temp = convert_temp(raw_temp);
-        float humidity = convert_humidity(raw_humidity);
-
-        char response[128];
-        snprintf(response, sizeof(response), "Temperature: %.2f C, Humidity: %.2f%%\n", temp, humidity);
-
-        // Send data to client
-        send(client_fd, response, strlen(response), 0);
-        printf("Sent data to client: %s", response);
-        syslog(LOG_INFO, "Sent data to client: %s", response);
-
         close(client_fd);
+        printf("Client disconnected\n");
+        syslog(LOG_INFO, "Client disconnected");
     }
 
     close(server_fd);
