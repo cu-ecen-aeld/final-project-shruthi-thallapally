@@ -26,19 +26,21 @@ volatile int keep_running = 1;
 
 // Signal handler for graceful shutdown
 void handle_sigint(int sig) {
+    printf("Server shutting down...\n");
     syslog(LOG_INFO, "Server shutting down");
     keep_running = 0;
 }
 
 int main(int argc, char *argv[]) {
     openlog("server", LOG_PID | LOG_CONS, LOG_USER);
+    printf("Starting server...\n");
     syslog(LOG_INFO, "Server starting...");
 
     // Handle SIGINT for graceful shutdown
     signal(SIGINT, handle_sigint);
 
     // Initialize the I2C interface
-    const char *i2c_device = "/dev/i2c-1"; 
+    const char *i2c_device = "/dev/i2c-1"; // Adjust if necessary
     int i2c_fd = open(i2c_device, O_RDWR);
     if (i2c_fd < 0) {
         perror("Unable to open I2C device");
@@ -85,6 +87,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    printf("Server is listening on port 9000...\n");
     syslog(LOG_INFO, "Server is listening on port 9000");
 
     while (keep_running) {
@@ -97,12 +100,14 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        printf("Client connected\n");
         syslog(LOG_INFO, "Client connected");
 
         // Read temperature and humidity
         uint16_t raw_temp, raw_humidity;
         if (read_raw_data(i2c_fd, SHT21_TRIGGER_TEMP_MEASURE_HOLD, &raw_temp) < 0 ||
             read_raw_data(i2c_fd, SHT21_TRIGGER_HUMIDITY_MEASURE_HOLD, &raw_humidity) < 0) {
+            printf("Failed to read sensor data\n");
             syslog(LOG_ERR, "Failed to read sensor data");
             close(client_fd);
             continue;
@@ -116,6 +121,7 @@ int main(int argc, char *argv[]) {
 
         // Send data to client
         send(client_fd, response, strlen(response), 0);
+        printf("Sent data to client: %s", response);
         syslog(LOG_INFO, "Sent data to client: %s", response);
 
         close(client_fd);
@@ -123,6 +129,7 @@ int main(int argc, char *argv[]) {
 
     close(server_fd);
     close(i2c_fd);
+    printf("Server terminated\n");
     syslog(LOG_INFO, "Server terminated");
     closelog();
 
